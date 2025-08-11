@@ -271,11 +271,12 @@ namespace green::gpu {
         bool                  need_minus_k  = reduced_to_full[k_reduced_id] != k;
         bool                  need_minus_k1 = reduced_to_full[k1_reduced_id] != k1;
 
+        if (!_devices_rank) PUSH_RANGE("GW_first_tau_contraction", 5);
+
         if (!_devices_rank) PUSH_RANGE("GW_reader1", 4);
         r1(k, k1, k_reduced_id, k1_reduced_id, k_vector, V_Qpm, Vk1k2_Qij, Gk_smtij, Gk1_stij, need_minus_k, need_minus_k1);
-        if (!_devices_rank) POP_RANGE; // closes "reader1"
-
-        if (!_devices_rank) PUSH_RANGE("GW_first_tau_contraction", 5);
+        if (!_devices_rank) POP_RANGE; // closes "GW_reader1"
+        
         gw_qkpt<prec>* qkpt = obtain_idle_qkpt(qkpts);
     
         if (!_devices_rank) PUSH_RANGE("Set_up_qkpt_first", 6);
@@ -320,6 +321,7 @@ namespace green::gpu {
       if (!_devices_rank) PUSH_RANGE("GW_Sigma_computation", 9);
       for (size_t k_reduced_id = 0; k_reduced_id < _ink; ++k_reduced_id) {
         size_t k = reduced_to_full[k_reduced_id];
+        if (!_devices_rank) PUSH_RANGE("GW_second_tau_contraction", 10);
         for (size_t q_or_qinv = 0; q_or_qinv < _nk; ++q_or_qinv) {
           if (full_to_reduced[q_or_qinv] == q_reduced_id) {  // only q and q_inv proceed
             std::array<size_t, 4> k_vector      = momentum_conservation({
@@ -332,20 +334,22 @@ namespace green::gpu {
 
             if (!_devices_rank) PUSH_RANGE("GW_reader2", 4);
             r2(k, k1, k1_reduced_id, k_vector, V_Qim, Vk1k2_Qij, Gk1_stij, need_minus_k1);
-            if (!_devices_rank) POP_RANGE;
+            if (!_devices_rank) POP_RANGE; // closes "GW_reader2"
 
-            if (!_devices_rank) PUSH_RANGE("GW_second_tau_contraction", 10);
             gw_qkpt<prec>* qkpt = obtain_idle_qkpt(qkpts);
+  
+            if (!_devices_rank) PUSH_RANGE("Set_up_qkpt_second", 6);
             if (_low_device_memory) {
-              if (!_devices_rank) PUSH_RANGE("Set_up_qkpt_second", 6);
               if (!_X2C) {
                 qkpt->set_up_qkpt_second(Gk1_stij.data(), V_Qim.data(), k_reduced_id, k1_reduced_id, need_minus_k1);
+                if (!_devices_rank) POP_RANGE; // closes "Set_up_qkpt_second"
                 qkpt->compute_second_tau_contraction(Sigmak_stij.data(),
                                                      qpt.Pqk_tQP(qkpt->all_done_event(), qkpt->stream(), need_minus_q));
                 copy_Sigma(Sigma_tskij_host, Sigmak_stij, k_reduced_id, _nts, _ns);
               } else {
                 // In 2cGW, G(-k) = G*(k) has already been addressed in r2()
                 qkpt->set_up_qkpt_second(Gk1_stij.data(), V_Qim.data(), k_reduced_id, k1_reduced_id, false);
+                if (!_devices_rank) POP_RANGE; // closes "Set_up_qkpt_second"
                 qkpt->compute_second_tau_contraction_2C(Sigmak_stij.data(),
                                                         qpt.Pqk_tQP(qkpt->all_done_event(), qkpt->stream(), need_minus_q));
                 copy_Sigma_2c(Sigma_tskij_host, Sigmak_stij, k_reduced_id, _nts);
@@ -355,9 +359,9 @@ namespace green::gpu {
               if (!_devices_rank) POP_RANGE; // closes "Set_up_qkpt_second"
               qkpt->compute_second_tau_contraction(nullptr, qpt.Pqk_tQP(qkpt->all_done_event(), qkpt->stream(), need_minus_q));
             }
-            if (!_devices_rank) POP_RANGE; // closes "GW_second_tau_contraction"
           }
         }
+        if (!_devices_rank) POP_RANGE; // closes "GW_second_tau_contraction"
       }
       if (!_devices_rank) POP_RANGE; // closes "GW_Sigma_computation"
       if (!_devices_rank) POP_RANGE; // closes "GW_q_loop"
